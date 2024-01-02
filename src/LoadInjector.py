@@ -5,8 +5,8 @@ import subprocess
 import tempfile
 import threading
 import time
-from multiprocessing import Pool, Event, cpu_count
-from urllib.request import urlopen
+from multiprocessing import Pool
+from cpu_load_generator import load_all_cores
 
 def current_ms():
     """
@@ -89,10 +89,6 @@ class LoadInjector:
                     return DiskStressInjection.fromJSON(job)
                 if job['type'] in {'CPU', 'Proc', 'CPUUsage', 'CPUStress'}:
                     return CPUStressInjection.fromJSON(job)
-                if job['type'] in {'Deadlock', 'Dl', 'Dead'}:
-                    return DeadlockInjection.fromJSON(job)
-                if job['type'] in {'HTTP', 'HTTPRead', 'NetRead', 'WebRead', 'SiteRead'}:
-                    return HTTPReadInjection.fromJSON(job)
                 if job['type'] in {'StopProcess', 'Process'}:
                     return ProcessHangInjection.fromJSON(job)
         return None
@@ -172,11 +168,11 @@ class CPUStressInjection(LoadInjector):
     CPUStress Error
     """
 
-    def __init__(self, tag: str = '', duration_ms: float = 1000):
+    def __init__(self, tag: str = '', duration_ms: float = 1000, target_load: int = 70):
         """
         Constructor
         """
-        self.poolc = None
+        self.target_load = target_load
         LoadInjector.__init__(self, tag, duration_ms)
 
     def inject_body(self):
@@ -185,36 +181,22 @@ class CPUStressInjection(LoadInjector):
         """
         self.completed_flag = False
         start_time = current_ms()
-        self.poolc = Pool(cpu_count())
-        self.poolc.map_async(self.stress_cpu, range(cpu_count()))
-        time.sleep((self.duration_ms - (current_ms() - start_time)) / 1000.0)
-        if self.poolc is not None:
-            self.poolc.terminate()
+        load_all_cores(duration_s=self.duration_ms/1000,
+                       target_load=self.target_load/100)
         self.injected_interval.append({'start': start_time, 'end': current_ms()})
         self.completed_flag = True
-
-    def force_close(self):
-        """
-        Try to force-close the injector
-        """
-        if self.poolc is not None:
-            self.poolc.terminate()
-        self.completed_flag = True
-
-    def stress_cpu(self, x: int = 1234):
-        while True:
-            x * x
 
     def get_name(self) -> str:
         """
         Abstract method to be overridden
         """
-        return "[" + self.tag + "]CPUStressInjection" + "(d" + str(self.duration_ms) + ")"
+        return "[" + self.tag + "]CPUStressInjection" + "(d" + str(self.duration_ms) + "-t"+str(self.target_load)+")"
 
     @classmethod
     def fromJSON(cls, job):
         return CPUStressInjection(tag=(job['tag'] if 'tag' in job else ''),
-                                  duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000))
+                                  duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
+                                  target_load=(int(job['target_load']) if 'target_load' in job else 70))
 
 
 class MemoryStressInjection(LoadInjector):
@@ -267,180 +249,6 @@ class MemoryStressInjection(LoadInjector):
                                      duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
                                      items_for_loop=(job['items_for_loop']
                                                      if 'items_for_loop' in job else 1234567))
-
-
-class DeadlockInjection(LoadInjector):
-    """
-    Creates deadlocks through reverse acquisitions of locks
-    """
-
-    def __init__(self, tag: str = '', duration_ms: float = 1000, n_threads: int = 2, n_locks: int = 1):
-        """
-        Constructor
-        """
-        self.n_threads = n_threads
-        self.n_locks = n_locks
-        self.force_stop = False
-        LoadInjector.__init__(self, tag, duration_ms)
-
-    def inject_body(self):
-        """
-        Abstract method to be overridden
-        """
-        self.completed_flag = False
-        start_time = current_ms()
-        deadlocks = [DeadlockInjection.DeadlockGroup(n_threads=self.n_threads) for i in range(0, self.n_locks)]
-        for dl in deadlocks:
-            dl.run()
-        while True:
-            # The 20 is because I am expecting to need some ms to terminate all processes
-            if current_ms() - start_time - 20 > self.duration_ms or self.force_stop:
-                break
-        for dl in deadlocks:
-            dl.stop()
-        deadlocks = None
-        self.injected_interval.append({'start': start_time, 'end': current_ms()})
-        self.completed_flag = True
-        self.force_stop = False
-
-    def force_close(self):
-        """
-        Try to force-close the injector
-        """
-        self.force_stop = True
-
-    def get_name(self) -> str:
-        """
-        Abstract method to be overridden
-        """
-        return "[" + self.tag + "]DeadlockInjection" + "(d" + str(self.duration_ms) + "-t" \
-               + str(self.n_threads) + "-l" + str(self.n_locks) + ")"
-
-    class DeadlockGroup:
-        """
-        Service class that groups processes needed to create deadlock
-        """
-
-        def __init__(self, n_threads: int = 2):
-            if n_threads < 2:
-                n_threads = 2
-            self.n_threads = n_threads
-            self.l1 = threading.Lock()
-            self.l2 = threading.Lock()
-            self.threads = []
-
-        def run(self):
-            """
-            Runs threads and creates deadlock around the two locks
-            :return:
-            """
-            self.threads = []
-            self.threads.append(multiprocessing.Process(target=self.f1, args=['t1', ]))
-            self.threads.append(multiprocessing.Process(target=self.f2, args=['t2', ]))
-            for i in range(0, self.n_threads - 2):
-                self.threads.append(multiprocessing.Process(target=self.f_other, args=['t_other', ]))
-            for thr in self.threads:
-                thr.start()
-
-        def stop(self):
-            """
-            Stops deadlocking threads
-            :return:
-            """
-            for thr in self.threads:
-                thr.terminate()
-            self.l1 = None
-            self.l2 = None
-            self.threads = []
-
-        def f1(self, name):
-            with self.l1:
-                time.sleep(0.01)
-                with self.l2:
-                    time.sleep(0.001)
-
-        def f2(self, name):
-            with self.l2:
-                time.sleep(0.01)
-                with self.l1:
-                    time.sleep(0.01)
-
-        def f_other(self, name):
-            with self.l2:
-                time.sleep(0.01)
-
-    @classmethod
-    def fromJSON(cls, job):
-        return DeadlockInjection(tag=(job['tag'] if 'tag' in job else ''),
-                                 duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
-                                 n_threads=(job['n_threads'] if 'n_threads' in job else 2),
-                                 n_locks=(job['n_locks'] if 'n_locks' in job else 1))
-
-
-class HTTPReadInjection(LoadInjector):
-    """
-    Reads data from HTTP urls
-    """
-
-    def __init__(self, tag: str = '', duration_ms: float = 1000, parallel_reads: int = 1,
-                 sites_urls: list = ['www.google.com'], sites_csv: str = None):
-        """
-        Constructor
-        """
-        self.parallel_reads = parallel_reads
-        self.sites_urls = sites_urls
-        if sites_csv is not None and os.path.exists(sites_csv):
-            try:
-                with open(sites_csv, 'r') as fil:
-                    self.sites_urls = ['http://' + line.rstrip('\n') for line in fil]
-            except:
-                print("Sites file is not readable")
-        self.http_readers = None
-        LoadInjector.__init__(self, tag, duration_ms)
-
-    def inject_body(self):
-        """
-        Abstract method to be overridden
-        """
-        self.completed_flag = False
-        start_time = current_ms()
-        self.http_readers = [multiprocessing.Process(target=url_reader,
-                                                     args=(self.sites_urls,
-                                                           random.randint(0, len(self.sites_urls) - 1),
-                                                           self.duration_ms,))
-                             for _ in range(0, self.parallel_reads)]
-        for http_reader in self.http_readers:
-            http_reader.start()
-        time.sleep((self.duration_ms - current_ms() + start_time) / 1000.0)
-        for http_reader in self.http_readers:
-            http_reader.terminate()
-        self.injected_interval.append({'start': start_time, 'end': current_ms()})
-        self.completed_flag = True
-
-    def force_close(self):
-        """
-        Try to force-close the injector
-        """
-        if self.http_readers is not None:
-            for http_reader in self.http_readers:
-                http_reader.terminate()
-        self.completed_flag = True
-
-    def get_name(self) -> str:
-        """
-        Abstract method to be overridden
-        """
-        return "[" + self.tag + "]HTTPReadInjection(d" + str(self.duration_ms) + "-r" \
-               + str(self.parallel_reads) + ")"
-
-    @classmethod
-    def fromJSON(cls, job):
-        return HTTPReadInjection(tag=(job['tag'] if 'tag' in job else ''),
-                                 duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
-                                 parallel_reads=(job['parallel_reads'] if 'parallel_reads' in job else 1),
-                                 sites_urls=(job['sites_urls'] if 'sites_urls' in job else ['www.google.com']),
-                                 sites_csv=(job['sites_csv'] if 'sites_csv' in job else None))
-
 
 class ProcessHangInjection(LoadInjector):
     """
