@@ -66,13 +66,16 @@ def monitor_system() -> dict:
 
     cpu_times_percent = psutil.cpu_times_percent(interval=0.1, percpu=True)
     cpu_freq = psutil.cpu_freq(percpu=True)
+    disk_usage = psutil.disk_usage('/')._asdict()
+    swap_memory = psutil.swap_memory()._asdict()
+    virtual_memory = psutil.virtual_memory()._asdict() 
 
     ret_dict.update({str(i)+k: v for i, d in enumerate(cpu_times_percent) for k, v in d._asdict().items()})
     ret_dict.update({str(i)+k: v for i, d in enumerate(cpu_freq) for k, v in d._asdict().items()})
     ret_dict.update(psutil.cpu_stats()._asdict())
-    ret_dict.update(psutil.disk_usage('/')._asdict())
-    ret_dict.update(psutil.swap_memory()._asdict())
-    ret_dict.update(psutil.virtual_memory()._asdict())
+    ret_dict.update({'disk_'+k:v for k, v in disk_usage.items()})
+    ret_dict.update({'swap_'+k:v for k, v in swap_memory.items()})
+    ret_dict.update({'virtual_'+k:v for k, v in virtual_memory.items()})
     ret_dict.update(psutil.disk_io_counters()._asdict())
     ret_dict['time_s'] = time.time()
 
@@ -143,9 +146,9 @@ if __name__ == '__main__':
     # General variables
     inj_json = 'injectors_base.json'
     time_step_sec = 0.2
-    obs_per_inj = 300
-    obs_between_inj = 300 # approximation
-    n_injectors = 120
+    obs_per_inj = 120
+    obs_between_inj = 180 # approximation
+    n_injectors = 50
 
     # Extracting definitions of injectors from input JSON
     injectors = read_injectors(inj_json, 

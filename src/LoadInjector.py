@@ -89,8 +89,6 @@ class LoadInjector:
                     return DiskStressInjection.fromJSON(job)
                 if job['type'] in {'CPU', 'Proc', 'CPUUsage', 'CPUStress'}:
                     return CPUStressInjection.fromJSON(job)
-                if job['type'] in {'StopProcess', 'Process'}:
-                    return ProcessHangInjection.fromJSON(job)
         return None
 
 class DiskStressInjection(LoadInjector):
@@ -249,75 +247,3 @@ class MemoryStressInjection(LoadInjector):
                                      duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
                                      items_for_loop=(job['items_for_loop']
                                                      if 'items_for_loop' in job else 1234567))
-
-class ProcessHangInjection(LoadInjector):
-    """
-    Pauses a process for a timeframe
-    """
-
-    def __init__(self, tag: str = '', duration_ms: float = 1000, process_name: str = 'arancino'):
-        """
-        Constructor
-        """
-        LoadInjector.__init__(self, tag, duration_ms)
-        if self.exists_process(process_name):
-            self.process_name = process_name
-        else:
-            self.process_name = None
-            print('[Error] Could not find service %s' % process_name)
-            self.valid = False
-        self.force_stop = False
-
-    def exists_process(self, pname):
-        if pname is not None:
-            try:
-                cmd_out = subprocess.check_output(['pgrep', pname])
-                cmd_out = cmd_out.decode('utf-8')
-                return cmd_out is not None and len(cmd_out) > 0
-            except:
-                return False
-        else:
-            return False
-
-    def inject_body(self):
-        """
-        Abstract method to be overridden
-        """
-        self.completed_flag = False
-        if self.process_name is not None:
-            start_time = current_ms()
-            try:
-                subprocess.check_output(['pkill', '-STOP', self.process_name])
-                while True:
-                    if current_ms() - start_time >= self.duration_ms or self.force_stop:
-                        break
-                subprocess.check_output(['pkill', '-CONT', self.process_name])
-                self.injected_interval.append({'start': start_time, 'end': current_ms()})
-            except:
-                subprocess.check_output(['pkill', '-CONT', self.process_name])
-                while True:
-                    if current_ms() - start_time >= self.duration_ms:
-                        break
-        else:
-            time.sleep(self.duration_ms / 1000.0)
-        self.completed_flag = True
-        self.force_stop = False
-
-    def force_close(self):
-        """
-        Try to force-close the injector
-        """
-        self.force_stop = True
-
-    def get_name(self) -> str:
-        """
-        Abstract method to be overridden
-        """
-        return "[" + self.tag + "]ProcessHangInjection" + "(d" + str(self.duration_ms) + \
-               "-n" + str(self.process_name) + ")"
-
-    @classmethod
-    def fromJSON(cls, job):
-        return ProcessHangInjection(tag=(job['tag'] if 'tag' in job else ''),
-                                    duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
-                                    process_name=(job['process_name'] if 'process_name' in job else 'arancino'))

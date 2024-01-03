@@ -11,18 +11,14 @@
     "tag": "CPU_default",
     "type": "CPU",
     "target_load": "90"
-    },{
-    "tag": "CPU_default",
-    "type": "CPU",
-    "target_load": "30"
     }, {
     "tag": "Memory_default",
     "type":  "Memory",
     "items_for_loop": 1234567
     },{
-        "tag": "Disk",
-        "type": "Disk",
-        "n_workers": 20,
-        "n_blocks": 20
-        }
+    "tag": "Disk",
+    "type": "Disk",
+    "n_workers": 20,
+    "n_blocks": 20
+    }
   ]
