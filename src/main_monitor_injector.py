@@ -64,19 +64,15 @@ def monitor_system() -> dict:
     """
     ret_dict = {}
 
-    cpu_times_percent = psutil.cpu_times_percent(interval=0.1, percpu=True)
+    cpu_times_percent = psutil.cpu_times_percent(interval=0.005, percpu=True)
+    cpu_percent = psutil.cpu_percent(interval=0.05, percpu=True)
     cpu_freq = psutil.cpu_freq(percpu=True)
-    disk_usage = psutil.disk_usage('/')._asdict()
-    swap_memory = psutil.swap_memory()._asdict()
     virtual_memory = psutil.virtual_memory()._asdict() 
 
     ret_dict.update({str(i)+k: v for i, d in enumerate(cpu_times_percent) for k, v in d._asdict().items()})
+    ret_dict.update({f'load{i}': v for i, v in enumerate(cpu_percent)})
     ret_dict.update({str(i)+k: v for i, d in enumerate(cpu_freq) for k, v in d._asdict().items()})
-    ret_dict.update(psutil.cpu_stats()._asdict())
-    ret_dict.update({'disk_'+k:v for k, v in disk_usage.items()})
-    ret_dict.update({'swap_'+k:v for k, v in swap_memory.items()})
     ret_dict.update({'virtual_'+k:v for k, v in virtual_memory.items()})
-    ret_dict.update(psutil.disk_io_counters()._asdict())
     ret_dict['time_s'] = time.time()
 
     return ret_dict
@@ -117,7 +113,7 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
                 # Pause from Injections
                 if verbose: print(f"{time.time()}|Ending Injection")
                 inj_now = None
-                obs_left_to_change = obs_between_inj*random.choice([0.5, 0.8, 1, 1.2, 1.5])
+                obs_left_to_change = obs_between_inj*random.choice([0.6, 0.8, 1, 1.2, 1.4])
 
             start_time = time.time()
             data_to_log = monitor_system()
@@ -145,9 +141,9 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
 if __name__ == '__main__':
     # General variables
     inj_json = 'injectors_base.json'
-    time_step_sec = 0.2
-    obs_per_inj = 120
-    obs_between_inj = 180 # approximation
+    time_step_sec = 0.5
+    obs_per_inj = 80
+    obs_between_inj = 140
     n_injectors = 50
 
     # Extracting definitions of injectors from input JSON

@@ -1,12 +1,7 @@
-import multiprocessing
-import os.path
-import random
-import subprocess
-import tempfile
 import threading
 import time
-from multiprocessing import Pool
-from cpu_load_generator import load_all_cores
+import random
+from cpu_load_generator import load_all_cores, load_single_core
 
 def current_ms():
     """
@@ -85,80 +80,9 @@ class LoadInjector:
             if 'type' in job:
                 if job['type'] in {'Memory', 'RAM', 'MemoryUsage', 'Mem', 'MemoryStress'}:
                     return MemoryStressInjection.fromJSON(job)
-                if job['type'] in {'Disk', 'SSD', 'DiskMemoryUsage', 'DiskStress'}:
-                    return DiskStressInjection.fromJSON(job)
                 if job['type'] in {'CPU', 'Proc', 'CPUUsage', 'CPUStress'}:
                     return CPUStressInjection.fromJSON(job)
         return None
-
-class DiskStressInjection(LoadInjector):
-    """
-    DiskStress Error
-    """
-
-    def __init__(self, tag: str = '', duration_ms: float = 1000, n_workers: int = 10,
-                 n_blocks: int = 10, rw_folder: str = './'):
-        """
-        Constructor
-        """
-        self.n_workers = n_workers
-        self.n_blocks = n_blocks
-        self.rw_folder = rw_folder
-        self.poold = None
-        LoadInjector.__init__(self, tag, duration_ms)
-
-    def inject_body(self):
-        """
-        Abstract method to be overridden
-        """
-        self.completed_flag = False
-        start_time = current_ms()
-        self.poold = []
-        poold_pool = Pool(self.n_workers)
-        poold_pool.map_async(self.stress_disk, range(self.n_workers))
-        self.poold.append(poold_pool)
-        time.sleep((self.duration_ms - (current_ms() - start_time)) / 1000.0)
-        if self.poold is not None:
-            for pool_disk in self.poold:
-                pool_disk.terminate()
-        self.injected_interval.append({'start': start_time, 'end': current_ms()})
-        self.completed_flag = True
-
-    def force_close(self):
-        """
-        Try to force-close the injector
-        """
-        if self.poold is not None:
-            for pool_disk in self.poold:
-                pool_disk.terminate()
-        self.completed_flag = True
-
-    def stress_disk(self):
-        block_to_write = 'x' * 1048576
-        while True:
-            filehandle = tempfile.TemporaryFile(dir=self.rw_folder)
-            for _ in range(self.n_blocks):
-                filehandle.write(block_to_write)
-            filehandle.seek(0)
-            for _ in range(self.n_blocks):
-                content = filehandle.read(1048576)
-            filehandle.close()
-            del content
-            del filehandle
-
-    def get_name(self) -> str:
-        """
-        Abstract method to be overridden
-        """
-        return "[" + self.tag + "]DiskStressInjection" + "(d" + str(self.duration_ms) + "-nw" + str(
-            self.n_workers) + ")"
-
-    @classmethod
-    def fromJSON(cls, job):
-        return DiskStressInjection(tag=(job['tag'] if 'tag' in job else ''),
-                                   duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
-                                   n_workers=(job['n_workers'] if 'n_workers' in job else 10),
-                                   n_blocks=(job['n_blocks'] if 'n_blocks' in job else 10))
 
 
 class CPUStressInjection(LoadInjector):
@@ -166,11 +90,12 @@ class CPUStressInjection(LoadInjector):
     CPUStress Error
     """
 
-    def __init__(self, tag: str = '', duration_ms: float = 1000, target_load: int = 70):
+    def __init__(self, tag: str = '', duration_ms: float = 1000, target_load: int = 70, target_core: int = -1):
         """
         Constructor
         """
-        self.target_load = target_load
+        self.target_load = int(target_load*random.choice([0.9, 1, 1.1]))
+        self.target_core = target_core
         LoadInjector.__init__(self, tag, duration_ms)
 
     def inject_body(self):
@@ -179,8 +104,15 @@ class CPUStressInjection(LoadInjector):
         """
         self.completed_flag = False
         start_time = current_ms()
-        load_all_cores(duration_s=self.duration_ms/1000,
+
+        if self.target_core == -1:
+            load_all_cores(duration_s=self.duration_ms/1000,
                        target_load=self.target_load/100)
+        else:
+            load_single_core(core_num=self.target_core, 
+                             duration_s=self.duration_ms/1000,
+                             target_load=self.target_load/100)
+        
         self.injected_interval.append({'start': start_time, 'end': current_ms()})
         self.completed_flag = True
 
@@ -194,8 +126,8 @@ class CPUStressInjection(LoadInjector):
     def fromJSON(cls, job):
         return CPUStressInjection(tag=(job['tag'] if 'tag' in job else ''),
                                   duration_ms=(job['duration_ms'] if 'duration_ms' in job else 1000),
-                                  target_load=(int(job['target_load']) if 'target_load' in job else 70))
-
+                                  target_load=(job['target_load'] if 'target_load' in job else 70),
+                                  target_core=(job['target_core'] if 'target_core' in job else -1))
 
 class MemoryStressInjection(LoadInjector):
     """
@@ -218,11 +150,11 @@ class MemoryStressInjection(LoadInjector):
         start_time = current_ms()
         my_list = []
         while True:
-            my_list.append([999 for i in range(0, self.items_for_loop)])
+            my_list.append([999 for _ in range(self.items_for_loop)])
             if current_ms() - start_time > self.duration_ms or self.force_stop:
                 break
             else:
-                time.sleep(0.001)
+                time.sleep(0.0001)
 
         self.injected_interval.append({'start': start_time, 'end': current_ms()})
         self.completed_flag = True
