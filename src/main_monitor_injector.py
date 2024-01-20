@@ -113,11 +113,11 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
                 # Pause from Injections
                 if verbose: print(f"{time.time()}|Ending Injection")
                 inj_now = None
-                obs_left_to_change = obs_between_inj*random.choice([0.6, 0.8, 1, 1.2, 1.4])
+                obs_left_to_change = obs_between_inj*random.choice([0.6, 0.8, 1, 1.2, 1.4]) # casually increment or decrement the length of the pause between injections
 
             start_time = time.time()
             data_to_log = monitor_system()
-            data_to_log['injector'] = 'rest' if inj_now is None else inj_now.get_name()
+            data_to_log['injector'] = 'rest' if inj_now is None else inj_now.get_name() # add label column
 
             # Writing as a new line of a CSV file
             # Create a CSV writer using the field/column names
@@ -128,10 +128,9 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
                 first_step = False
             writer.writerow(data_to_log)
 
-            # Sleeping to synchronize to the obs-interval
             exe_time = time.time() - start_time
-
             if exe_time < obs_interval_sec:
+                # Sleeping to synchronize to the obs-interval
                 time.sleep(obs_interval_sec - exe_time)
             else:
                 if verbose: print(f"[{inj_now.get_name() if inj_now is not None else 'Rest'}]Warning: execution of the monitor took too long (%.3f sec)" % (exe_time - obs_interval_sec))
@@ -141,10 +140,10 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
 if __name__ == '__main__':
     # General variables
     inj_json = 'injectors_base.json'
-    time_step_sec = 0.5
-    obs_per_inj = 80
-    obs_between_inj = 140
-    n_injectors = 50
+    time_step_sec = 0.5 # length of each monitoring step (in seconds)
+    obs_per_inj = 80 # number of observations for each injection
+    obs_between_inj = 140 # number of observations during rest phases
+    n_injectors = 50 # number of injectors (if inj_json contains less, the injectors are duplicated randomly to reach goal number)
 
     # Extracting definitions of injectors from input JSON
     injectors = read_injectors(inj_json, 
