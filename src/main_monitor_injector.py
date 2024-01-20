@@ -139,7 +139,7 @@ def main(out_filename: str, obs_interval_sec: float, obs_per_inj: int, obs_betwe
 
 if __name__ == '__main__':
     # General variables
-    inj_json = 'injectors_base.json'
+    inj_json = 'base_injectors.json'
     time_step_sec = 0.5 # length of each monitoring step (in seconds)
     obs_per_inj = 80 # number of observations for each injection
     obs_between_inj = 140 # number of observations during rest phases
